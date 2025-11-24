@@ -1,0 +1,98 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+coverage.xml
+
+# Type checking
+.mypy_cache/
+
+# Jupyter
+.ipynb_checkpoints
+
+# Data files
+*.csv
+*.parquet
+*.h5
+*.pkl
+*.joblib
+data/raw/
+data/processed/
+
+# Model artifacts
+models/*.pkl
+models/*.joblib
+models/*.h5
+*.onnx
+
+# Logs
+logs/
+*.log
+
+# Secrets
+.env.local
+.env.*.local
+secrets/
+*.pem
+*.key
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker
+.docker/
+
+# Kubernetes
+kubeconfig
+*.kubeconfig
+
+# Node.js (dashboard)
+node_modules/
+dashboard/dist/
+dashboard/build/
+
+# Swiss Ephemeris data
+ephe/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
