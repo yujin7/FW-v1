@@ -68,16 +68,19 @@ class FeatureDiscovery:
         Generate new feature candidates.
 
         Strategies:
-        1. Lag features (t-1, t-2, t-5)
-        2. Rolling statistics (mean, std over windows)
-        3. Feature interactions (products, ratios)
-        4. Cycle variations (different periods)
+        1. Lag features (t-1, t-2, t-5, t-10, t-20)
+        2. Rolling statistics (mean, std, min, max over windows)
+        3. Feature interactions (products, ratios, differences)
+        4. Momentum indicators
+        5. Volatility measures
+        6. Rate of change
+        7. Z-scores
         """
         candidates = []
 
-        # 1. Lag features
+        # 1. Lag features (expanded)
         for i, name in enumerate(self.base_features):
-            for lag in [1, 2, 5]:
+            for lag in [1, 2, 3, 5, 10, 20]:
                 def make_lag_fn(idx, lag_val):
                     def fn(X_in, row_idx):
                         if row_idx >= lag_val:
@@ -90,32 +93,134 @@ class FeatureDiscovery:
                     compute_fn=make_lag_fn(i, lag)
                 ))
 
-        # 2. Rolling statistics
+        # 2. Rolling statistics (expanded)
         for i, name in enumerate(self.base_features):
-            for window in [5, 10, 20]:
-                def make_rolling_fn(idx, win):
+            for window in [3, 5, 10, 20, 50]:
+                # Rolling mean
+                def make_rolling_mean(idx, win):
                     def fn(X_in, row_idx):
                         start = max(0, row_idx - win)
                         return np.mean(X_in[start:row_idx+1, idx])
                     return fn
-
                 candidates.append(FeatureCandidate(
                     name=f"{name}_ma{window}",
-                    compute_fn=make_rolling_fn(i, window)
+                    compute_fn=make_rolling_mean(i, window)
                 ))
 
-        # 3. Feature interactions (top pairs only)
-        for i in range(min(3, len(self.base_features))):
-            for j in range(i+1, min(4, len(self.base_features))):
-                def make_interaction_fn(idx1, idx2):
+                # Rolling std (volatility)
+                def make_rolling_std(idx, win):
+                    def fn(X_in, row_idx):
+                        start = max(0, row_idx - win)
+                        vals = X_in[start:row_idx+1, idx]
+                        return np.std(vals) if len(vals) > 1 else 0
+                    return fn
+                candidates.append(FeatureCandidate(
+                    name=f"{name}_std{window}",
+                    compute_fn=make_rolling_std(i, window)
+                ))
+
+                # Rolling min
+                def make_rolling_min(idx, win):
+                    def fn(X_in, row_idx):
+                        start = max(0, row_idx - win)
+                        return np.min(X_in[start:row_idx+1, idx])
+                    return fn
+                candidates.append(FeatureCandidate(
+                    name=f"{name}_min{window}",
+                    compute_fn=make_rolling_min(i, window)
+                ))
+
+                # Rolling max
+                def make_rolling_max(idx, win):
+                    def fn(X_in, row_idx):
+                        start = max(0, row_idx - win)
+                        return np.max(X_in[start:row_idx+1, idx])
+                    return fn
+                candidates.append(FeatureCandidate(
+                    name=f"{name}_max{window}",
+                    compute_fn=make_rolling_max(i, window)
+                ))
+
+        # 3. Feature interactions (all pairs)
+        for i in range(len(self.base_features)):
+            for j in range(i+1, len(self.base_features)):
+                # Product
+                def make_product_fn(idx1, idx2):
                     def fn(X_in, row_idx):
                         return X_in[row_idx, idx1] * X_in[row_idx, idx2]
                     return fn
-
                 candidates.append(FeatureCandidate(
                     name=f"{self.base_features[i]}_x_{self.base_features[j]}",
-                    compute_fn=make_interaction_fn(i, j)
+                    compute_fn=make_product_fn(i, j)
                 ))
+
+                # Ratio
+                def make_ratio_fn(idx1, idx2):
+                    def fn(X_in, row_idx):
+                        denom = X_in[row_idx, idx2]
+                        return X_in[row_idx, idx1] / denom if abs(denom) > 0.001 else 0
+                    return fn
+                candidates.append(FeatureCandidate(
+                    name=f"{self.base_features[i]}_div_{self.base_features[j]}",
+                    compute_fn=make_ratio_fn(i, j)
+                ))
+
+                # Difference
+                def make_diff_fn(idx1, idx2):
+                    def fn(X_in, row_idx):
+                        return X_in[row_idx, idx1] - X_in[row_idx, idx2]
+                    return fn
+                candidates.append(FeatureCandidate(
+                    name=f"{self.base_features[i]}_minus_{self.base_features[j]}",
+                    compute_fn=make_diff_fn(i, j)
+                ))
+
+        # 4. Momentum (rate of change)
+        for i, name in enumerate(self.base_features):
+            for period in [5, 10, 20]:
+                def make_momentum_fn(idx, per):
+                    def fn(X_in, row_idx):
+                        if row_idx >= per:
+                            return X_in[row_idx, idx] - X_in[row_idx - per, idx]
+                        return 0
+                    return fn
+                candidates.append(FeatureCandidate(
+                    name=f"{name}_momentum{period}",
+                    compute_fn=make_momentum_fn(i, period)
+                ))
+
+        # 5. Z-score (standardized value)
+        for i, name in enumerate(self.base_features):
+            for window in [20, 50]:
+                def make_zscore_fn(idx, win):
+                    def fn(X_in, row_idx):
+                        start = max(0, row_idx - win)
+                        vals = X_in[start:row_idx+1, idx]
+                        if len(vals) > 1:
+                            mean = np.mean(vals)
+                            std = np.std(vals)
+                            return (X_in[row_idx, idx] - mean) / (std + 1e-6)
+                        return 0
+                    return fn
+                candidates.append(FeatureCandidate(
+                    name=f"{name}_zscore{window}",
+                    compute_fn=make_zscore_fn(i, window)
+                ))
+
+        # 6. Acceleration (second derivative)
+        for i, name in enumerate(self.base_features):
+            def make_accel_fn(idx):
+                def fn(X_in, row_idx):
+                    if row_idx >= 2:
+                        v1 = X_in[row_idx, idx] - X_in[row_idx-1, idx]
+                        v0 = X_in[row_idx-1, idx] - X_in[row_idx-2, idx]
+                        return v1 - v0
+                    return 0
+                return fn
+            candidates.append(FeatureCandidate(
+                name=f"{name}_accel",
+                compute_fn=make_accel_fn(i)
+            ))
 
         return candidates
 
@@ -137,9 +242,10 @@ class FeatureTester:
     - Cross-validation performance
     """
 
-    def __init__(self, significance_level: float = 0.05, max_correlation: float = 0.70):
-        self.significance_level = significance_level
-        self.max_correlation = max_correlation
+    def __init__(self, significance_level: float = 0.15, max_correlation: float = 0.85):
+        # Relaxed criteria for more exploration
+        self.significance_level = significance_level  # Was 0.05, now 0.15
+        self.max_correlation = max_correlation  # Was 0.70, now 0.85
 
     def tier_0_test(self, feature_values: np.ndarray, y: np.ndarray) -> Tuple[bool, Dict]:
         """
@@ -174,7 +280,7 @@ class FeatureTester:
     def tier_1_test(self, feature_values: np.ndarray, y: np.ndarray,
                     existing_features: np.ndarray) -> Tuple[bool, Dict]:
         """
-        Rigorous testing.
+        Rigorous testing - ensures features are COMPLEMENTARY not overlapping.
 
         Returns:
             (passed, metrics_dict)
@@ -183,37 +289,74 @@ class FeatureTester:
 
         # 1. Orthogonality check - not too correlated with existing features
         max_corr = 0
+        avg_corr = 0
         for i in range(existing_features.shape[1]):
             corr, _ = pearsonr(feature_values, existing_features[:, i])
             max_corr = max(max_corr, abs(corr))
+            avg_corr += abs(corr)
+        avg_corr /= max(1, existing_features.shape[1])
 
         metrics['max_correlation_existing'] = float(max_corr)
+        metrics['avg_correlation_existing'] = float(avg_corr)
+
+        # Reject if too similar to existing (redundant)
         if max_corr > self.max_correlation:
             return False, {**metrics, 'reason': 'redundant_feature'}
 
+        # Bonus: also check average correlation is reasonable
+        if avg_corr > 0.6:  # If highly correlated with MOST existing features
+            return False, {**metrics, 'reason': 'too_similar_overall'}
+
         # 2. Temporal stability - correlation in different time periods
         n = len(feature_values)
-        mid = n // 2
+        third = n // 3
 
-        corr_first, _ = spearmanr(feature_values[:mid], y[:mid])
-        corr_second, _ = spearmanr(feature_values[mid:], y[mid:])
+        corr_first, _ = spearmanr(feature_values[:third], y[:third])
+        corr_mid, _ = spearmanr(feature_values[third:2*third], y[third:2*third])
+        corr_last, _ = spearmanr(feature_values[2*third:], y[2*third:])
 
-        metrics['corr_first_half'] = float(corr_first)
-        metrics['corr_second_half'] = float(corr_second)
+        metrics['corr_first_third'] = float(corr_first) if not np.isnan(corr_first) else 0
+        metrics['corr_mid_third'] = float(corr_mid) if not np.isnan(corr_mid) else 0
+        metrics['corr_last_third'] = float(corr_last) if not np.isnan(corr_last) else 0
 
-        # Sign should be consistent
-        if np.sign(corr_first) != np.sign(corr_second):
-            return False, {**metrics, 'reason': 'unstable_sign'}
+        # At least 2 of 3 periods should have same sign (relaxed from all same)
+        signs = [np.sign(corr_first), np.sign(corr_mid), np.sign(corr_last)]
+        signs = [s for s in signs if not np.isnan(s)]
+        if len(signs) >= 2:
+            if signs.count(signs[0]) < 2:  # Less than 2 agree
+                return False, {**metrics, 'reason': 'unstable_sign'}
 
-        # 3. Univariate regression R²
+        # 3. Univariate regression R² (relaxed threshold)
         from sklearn.linear_model import LinearRegression
         lr = LinearRegression()
         lr.fit(feature_values.reshape(-1, 1), y)
         r2 = lr.score(feature_values.reshape(-1, 1), y)
         metrics['univariate_r2'] = float(r2)
 
-        if r2 < 0.01:  # Must explain at least 1%
+        if r2 < 0.005:  # Relaxed: must explain at least 0.5%
             return False, {**metrics, 'reason': 'low_explanatory_power'}
+
+        # 4. NEW: Check information gain (complementary check)
+        # Feature should add info beyond what existing features provide
+        if existing_features.shape[1] > 0:
+            from sklearn.linear_model import Ridge
+            # R² with existing features only
+            ridge_existing = Ridge(alpha=1.0)
+            ridge_existing.fit(existing_features, y)
+            r2_existing = ridge_existing.score(existing_features, y)
+
+            # R² with existing + new feature
+            X_combined = np.column_stack([existing_features, feature_values])
+            ridge_combined = Ridge(alpha=1.0)
+            ridge_combined.fit(X_combined, y)
+            r2_combined = ridge_combined.score(X_combined, y)
+
+            info_gain = r2_combined - r2_existing
+            metrics['information_gain'] = float(info_gain)
+
+            # Must add at least 0.1% improvement
+            if info_gain < 0.001:
+                return False, {**metrics, 'reason': 'no_information_gain'}
 
         return True, metrics
 
