@@ -1,0 +1,13 @@
+{
+  "baseline_mae": 0.010492102100224663,
+  "weights": {
+    "western_aspects": 0.248,
+    "eclipse_cycles": 0.229,
+    "ashtakavarga": 0.196,
+    "bradley_siderograph": 0.162,
+    "fibonacci_time": 0.165
+  },
+  "weight_history": [],
+  "last_training": "2025-11-24T23:46:30.150985",
+  "events": []
+}

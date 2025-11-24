@@ -9,7 +9,12 @@ import pandas as pd
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Tuple
 from dataclasses import dataclass
-import yfinance as yf
+
+try:
+    import yfinance as yf
+    HAS_YFINANCE = True
+except ImportError:
+    HAS_YFINANCE = False
 
 
 @dataclass
@@ -62,8 +67,12 @@ class MarketDataCollector:
         cache_key = f"{self.symbol}_{start_date}_{end_date}"
 
         if cache_key not in self.cache:
-            ticker = yf.Ticker(self.symbol)
-            df = ticker.history(start=start_date, end=end_date)
+            if HAS_YFINANCE:
+                ticker = yf.Ticker(self.symbol)
+                df = ticker.history(start=start_date, end=end_date)
+            else:
+                # Generate synthetic data for demo
+                df = self._generate_synthetic_data(start_date, end_date)
             self.cache[cache_key] = df
 
         df = self.cache[cache_key].copy()
@@ -81,6 +90,35 @@ class MarketDataCollector:
             volume=df['Volume'].values,
             returns=returns
         )
+
+    def _generate_synthetic_data(self, start_date: str, end_date: str) -> pd.DataFrame:
+        """Generate synthetic market data for demo when yfinance unavailable."""
+        start = pd.to_datetime(start_date)
+        end = pd.to_datetime(end_date)
+        dates = pd.date_range(start=start, end=end, freq='B')  # Business days
+
+        np.random.seed(42)
+        n = len(dates)
+
+        # Generate realistic price series with occasional crashes
+        returns = np.random.normal(0.0005, 0.012, n)  # Daily returns
+
+        # Add some crash events (~5% of days have >3% drops)
+        crash_indices = np.random.choice(n, size=int(n * 0.03), replace=False)
+        returns[crash_indices] = np.random.uniform(-0.08, -0.03, len(crash_indices))
+
+        # Build price series
+        prices = 400 * np.exp(np.cumsum(returns))  # Start around SPY price
+
+        df = pd.DataFrame({
+            'Open': prices * (1 + np.random.uniform(-0.005, 0.005, n)),
+            'High': prices * (1 + np.random.uniform(0, 0.015, n)),
+            'Low': prices * (1 - np.random.uniform(0, 0.015, n)),
+            'Close': prices,
+            'Volume': np.random.randint(50_000_000, 150_000_000, n)
+        }, index=dates)
+
+        return df
 
     def identify_crashes(self, data: MarketData, threshold: float = -0.05) -> pd.DataFrame:
         """
